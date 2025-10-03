@@ -1,5 +1,5 @@
 # Lime Wallet convierte el dolor de las comisiones en un diferencial invisible—tu usuario paga, sonríe y ni siquiera sabe que existía un segundo token. Eso vale oro (o, mejor dicho, USDC).
-# Lime Wallet – Gas‑Abstracted Paymaster
+# Lime Wallet – Gas‑Abstracted Paymaster 🍋‍🟩
 
 A minimal **ERC‑4337 Token Paymaster** that lets Lemon Mini‑App users pay **gas with USDC** (no ETH/MATIC/XLM friction).
 
