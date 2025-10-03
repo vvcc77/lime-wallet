@@ -1,13 +1,16 @@
-
 [profile.default]
-solc_version = "0.8.24"
-optimizer = true
-optimizer_runs = 200
-evm_version = "paris"
 src = "src"
-test = "test"
 out = "out"
 libs = ["lib"]
+test = "test"
+optimizer = true
+optimizer_runs = 200
+solc = "0.8.24"
+evm_version = "paris"
 
-[fmt]
-line_length = 120
+[rpc_endpoints]
+sepolia = "${RPC_SEPOLIA}"
+mainnet = "${RPC_MAINNET}"
+
+[etherscan]
+# Opcional: para verificación de contratos
