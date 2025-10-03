@@ -2,15 +2,21 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-test = "test"
+solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
-solc = "0.8.24"
 evm_version = "paris"
+
+# 🔑 Import remappings
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts/account-abstraction/=lib/account-abstraction/contracts/"
+]
 
 [rpc_endpoints]
 sepolia = "${RPC_SEPOLIA}"
 mainnet = "${RPC_MAINNET}"
 
 [etherscan]
-# Opcional: para verificación de contratos
+# opcional: completa si querés verificación automática
