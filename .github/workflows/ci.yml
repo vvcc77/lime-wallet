@@ -18,9 +18,7 @@ jobs:
         run: |
           forge install OpenZeppelin/openzeppelin-contracts
           forge install foundry-rs/forge-std
-
-      - name: Check Foundry version
-        run: forge --version
+          forge install eth-infinitism/account-abstraction@v0.6
 
       - name: Build contracts
         run: forge build
@@ -32,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: crytic/slither-action@v0.3.4
+      - uses: crytic/slither-action@v0.3.0
         with:
           node-version: 20
           fail-on: medium
