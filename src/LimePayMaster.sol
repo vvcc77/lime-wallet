@@ -1,77 +1,83 @@
-// SPDX-License-Identifier: MIT ft vvcc77 & PhoenixZeroph
-pragma solidity 0.8.24;
+// SPDX-License-Identifier: MIT ft @vvcc77 & @PhoenixZeroph
+pragma solidity ^0.8.24;
 
-/**
- * LimePaymaster – ERC-4337 Token Paymaster that lets users pay gas in USDC.
- * Patches Lemon’s “dual-token” pain: no ETH/MATIC needed by end-user.
- *
- * Audit targets: OWASP SC Top 10, Checks-Effects-Interactions.
- */
-import {IERC20}  from "openzeppelin/token/ERC20/IERC20.sol";
-import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {BasePaymaster, UserOperation, IEntryPoint, PostOpMode} from
-        "account-abstraction/contracts/core/BasePaymaster.sol";
+import {BasePaymaster, IEntryPoint, UserOperation, PostOpMode} 
+  from "@openzeppelin/contracts/account-abstraction/core/BasePaymaster.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface IPriceOracle {
-    /// @return ethPrice USD-scaled 1e8
-    function ethUsdPrice() external view returns (uint256);
+    function peek() external view returns (uint256 priceRay, uint256 updatedAt);
 }
 
-contract LimePaymaster is BasePaymaster, Ownable {
-    IERC20  public immutable usdc;
-    IPriceOracle public oracle;          // e.g. Chainlink ETH/USD
-    uint256 public constant USDC_DECIMALS = 1e6;
-    uint256 public feeMarkupBps = 1_000; // 10 % (100 bps = 1 %)
+interface IERC20Permit {
+    function permit(
+        address owner, address spender, uint256 value, uint256 deadline,
+        uint8 v, bytes32 r, bytes32 s
+    ) external;
+}
 
-    constructor(
-        address _entryPoint,
-        address _usdc,
-        address _oracle
-    ) {
-        _initializeOwner(msg.sender);
-        usdc   = IERC20(_usdc);
-        oracle = IPriceOracle(_oracle);
-        _transferOwnership(msg.sender);
-        ENTRY_POINT = IEntryPoint(_entryPoint);
+contract LimePaymaster is BasePaymaster {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable usdc;
+    IPriceOracle public oracle;
+
+    uint256 public constant RAY = 1e27;
+    uint256 public MAX_PRICE_AGE = 60;
+    uint256 public MAX_USD_PER_TX = 50e6; // 50 USDC
+    uint256 public MAX_USD_PER_USER_WINDOW = 500e6;
+    uint256 public WINDOW = 1 days;
+    uint256 public windowEpoch;
+
+    mapping(address => uint256) public spentWindow;
+
+    error StalePrice();
+    error ExceedsCap();
+    error InvalidPermit();
+
+    constructor(IEntryPoint entryPoint_, IERC20 usdc_, IPriceOracle oracle_) BasePaymaster(entryPoint_) {
+        usdc = usdc_;
+        oracle = oracle_;
     }
 
-    /// Allow owner to tune markup or oracle
-    function setConfig(address _oracle, uint256 _markupBps) external onlyOwner {
-        oracle       = IPriceOracle(_oracle);
-        feeMarkupBps = _markupBps;
-    }
-
-    // === Core ERC-4337 hooks ===
     function _validatePaymasterUserOp(
         UserOperation calldata userOp,
-        bytes32, /*userOpHash*/
-        uint256 maxCost            // max ETH the op *might* cost
-    )
-        internal override returns (bytes memory context, uint256 validationData)
-    {
-        uint256 ethUsd = oracle.ethUsdPrice();   // 1e8 scale
-        // Convert maxCost (wei) → USDC (6 dec) with markup buffer
-        uint256 usdcOwed = (maxCost * ethUsd / 1e8) / 1e12; // wei→ETH→USD→USDC
-        usdcOwed = usdcOwed * (10_000 + feeMarkupBps) / 10_000;
+        bytes32,
+        uint256 maxCost
+    ) internal override returns (bytes memory context, uint256 validationData) {
+        (uint256 priceRay, uint256 updatedAt) = oracle.peek();
+        if (block.timestamp - updatedAt > MAX_PRICE_AGE) revert StalePrice();
 
-        require(
-            usdc.allowance(userOp.sender, address(this)) >= usdcOwed,
-            "Insufficient USDC allowance"
-        );
+        uint256 usdc18 = (maxCost * priceRay) / RAY;
+        uint256 usdc6  = usdc18 / 1e12;
+        if (usdc6 > MAX_USD_PER_TX) revert ExceedsCap();
 
-        // Pull USDC upfront
-        usdc.transferFrom(userOp.sender, address(this), usdcOwed);
-        return ("", _packValidationData(false, 0, 0));
+        address sender = userOp.getSender();
+        _rollWindow();
+        spentWindow[sender] += usdc6;
+        if (spentWindow[sender] > MAX_USD_PER_USER_WINDOW) revert ExceedsCap();
+
+        // Try consume permit (if passed in paymasterAndData)
+        if (userOp.paymasterAndData.length > 20) {
+            // decode: [paymasterAddress, owner, value, deadline, v,r,s]
+            (, address owner, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) =
+                abi.decode(userOp.paymasterAndData[20:], (address, address, uint256, uint256, uint8, bytes32, bytes32));
+            IERC20Permit(address(usdc)).permit(owner, address(this), value, deadline, v, r, s);
+        }
+
+        usdc.safeTransferFrom(sender, address(this), usdc6);
+        context = abi.encode(sender, usdc6);
+        validationData = 0;
     }
 
-    function _postOp(PostOpMode, bytes calldata, uint256) internal override {
-        // No‑op – already charged. Could refund any diff if desired.
-    }
+    function _postOp(PostOpMode, bytes calldata, uint256) internal override {}
 
-    // === Admin  ops ===
-    function sweepUSDC(address to, uint256 amount) external onlyOwner {
-        usdc.transfer(to, amount);
+    function _rollWindow() internal {
+        uint256 epoch = block.timestamp / WINDOW;
+        if (epoch != windowEpoch) {
+            windowEpoch = epoch;
+            // Simplificado; en prod se limpia mapping o se usa decay
+        }
     }
-
-    receive() external payable {}
 }
