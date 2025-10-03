@@ -8,7 +8,7 @@ A minimal **ERC‑4337 Token Paymaster** that lets Lemon Mini‑App users pay **
 ```bash
 # Requirements
 forge --version            # Foundry
-git clone https://github.com/your-org/lime-wallet.git
+git clone https://github.com/vvcc77/lime-wallet.git
 cd lime-wallet
 forge install openzeppelin/account-abstraction
 forge build
