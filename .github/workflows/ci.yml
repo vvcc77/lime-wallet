@@ -16,9 +16,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          forge install OpenZeppelin/openzeppelin-contracts --no-commit
-          forge install OpenZeppelin/account-abstraction@v0.6 --no-commit
-          forge install foundry-rs/forge-std --no-commit
+          forge install OpenZeppelin/openzeppelin-contracts
+          forge install OpenZeppelin/account-abstraction@v0.6
+          forge install foundry-rs/forge-std
 
       - name: Check Foundry version
         run: forge --version
